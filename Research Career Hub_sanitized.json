@@ -1,0 +1,1254 @@
+{
+  "name": "Research Career Hub",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 1 1 *"
+            }
+          ]
+        }
+      },
+      "id": "__NODE_1__",
+      "name": "Annual - Professor Discovery",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        800,
+        1952
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 8,
+              "triggerAtMinute": 10
+            }
+          ]
+        }
+      },
+      "id": "__NODE_2__",
+      "name": "Weekly - Draft Outreach",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        800,
+        2400
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "REDACTED",
+        "documentId": {
+          "__rl": true,
+          "value": "REDACTED_OPAQUE_TOKEN",
+          "mode": "list",
+          "cachedResultName": "Research & Career Hub",
+          "cachedResultUrl": "[URL]"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "professors",
+          "cachedResultUrl": "[URL]"
+        },
+        "options": {}
+      },
+      "id": "__NODE_3__",
+      "name": "Read Existing Professors (Annual)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1040,
+        1952
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleApi": {
+          "id": "__GOOGLE_CRED_ID",
+          "name": "Google API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const topics = [\n  { id: 'obj-detect', label: 'Object Detection', query: 'object detection YOLO Faster R-CNN RetinaNet one-stage two-stage detection real-time visual recognition' },\n  { id: 'image-recognition', label: 'Image Recognition', query: 'image recognition image classification visual recognition convolutional neural network CNN vision transformer ViT representation learning' },\n  { id: 'video-ai', label: 'Video AI', query: 'video understanding action recognition temporal modeling video classification tracking 3D CNN transformer diffusion' },\n  { id: 'edge-ai', label: 'Edge AI TinyML', query: 'edge machine learning TinyML embedded neural network model compression quantization pruning microcontroller on-device inference' },\n  { id: 'llm-agents', label: 'LLM Agents', query: 'large language model agent autonomous tool use planning reasoning ReAct multi-agent orchestration' },\n  { id: 'ai-ml-core', label: 'AI and Machine Learning', query: 'artificial intelligence machine learning deep learning reinforcement learning self-supervised learning foundation models' },\n  { id: 'bioremediation', label: 'Bioremediation', query: 'bioremediation microbial contamination environmental cleanup biodegradation pollutant removal' },\n  { id: 'bioenergy', label: 'Bioenergy', query: 'bioenergy biomass waste to energy biofuel anaerobic digestion renewable biological systems' },\n  { id: 'bioengineering', label: 'Bioengineering', query: 'bioengineering synthetic biology metabolic engineering genetic circuit design bioprocess engineering' },\n  { id: 'bioproduction', label: 'Bioproduction', query: 'bioproduction fermentation microbial biosynthesis industrial biotechnology upstream downstream processing' },\n  { id: 'ai-ml-biosystems', label: 'AI and ML in Biosystems', query: 'machine learning artificial intelligence biosystems systems biology bioinformatics computational biology bioprocess optimization' }\n];\nconst existingRows = $('Read Existing Professors (Annual)').all().map(item => item.json || {});\nconst existingIds = Array.from(new Set(existingRows.map(row => String(row['Profile URL'] || '').trim()).filter(Boolean)));\nconst existingNames = Array.from(new Set(existingRows.map(row => String(row['Full Name'] || '').toLowerCase().trim()).filter(Boolean)));\nreturn topics.map(topic => ({ json: { ...topic, existingIds, existingNames } }));"
+      },
+      "id": "__NODE_4__",
+      "name": "Prepare Topics (Annual)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        1952
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=[URL] encodeURIComponent($json.query) }},institutions.country_code:CA,from_publication_date:2025-01-01&per_page=50&sort=publication_year:desc&select=id,title,publication_year,authorships&mailto=[EMAIL]",
+        "options": {}
+      },
+      "id": "__NODE_5__",
+      "name": "OpenAlex - Search Works (Annual)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        1952
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function isoWeek(d = new Date()) {\n  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));\n  const dayNum = date.getUTCDay() || 7;\n  date.setUTCDate(date.getUTCDate() + 4 - dayNum);\n  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));\n  const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);\n  return { year: date.getUTCFullYear(), week: weekNo };\n}\n\nconst items = $input.all();\nconst sourceTopics = $('Prepare Topics (Annual)').all();\nconst rows = [];\nconst seenAuthorIds = new Set();\nconst topicCounts = {};\n\nconst now = new Date();\nconst iw = isoWeek(now);\nconst weekKey = `${iw.year}-${String(iw.week).padStart(2, '0')}`;\n\nconst ACTIVE_FROM_YEAR = 2025;\nconst PER_TOPIC_CAP = 60;\nconst MAX_NEW = 600;\n\nfor (let index = 0; index < items.length; index++) {\n  const item = items[index];\n  const source = sourceTopics[index]?.json || {};\n  const existingIds = new Set((source.existingIds || []).map(String));\n  const existingNames = new Set(\n    (source.existingNames || []).map(name => String(name).toLowerCase().trim())\n  );\n\n  const topicId = String(source.id || '').trim();\n  const topicLabel = String(source.label || '').trim();\n  const results = item.json.results || [];\n\n  if (!topicId || !topicLabel) continue;\n\n  topicCounts[topicId] = topicCounts[topicId] || 0;\n\n  for (const work of results) {\n    if (rows.length >= MAX_NEW) break;\n    if (topicCounts[topicId] >= PER_TOPIC_CAP) break;\n\n    const publicationYear = Number(work.publication_year || 0);\n    if (publicationYear < ACTIVE_FROM_YEAR) continue;\n\n    for (const authorship of (work.authorships || [])) {\n      if (rows.length >= MAX_NEW) break;\n      if (topicCounts[topicId] >= PER_TOPIC_CAP) break;\n\n      const author = authorship.author || {};\n      const authorId = String(author.id || '').trim();\n      const fullName = String(author.display_name || '').trim();\n      const normalizedName = fullName.toLowerCase();\n\n      if (!authorId || !fullName) continue;\n      if (existingIds.has(authorId)) continue;\n      if (existingNames.has(normalizedName)) continue;\n      if (seenAuthorIds.has(authorId)) continue;\n\n      const institution = (authorship.institutions || []).find(\n        inst => inst.country_code === 'CA' && inst.type === 'education'\n      );\n      if (!institution) continue;\n\n      seenAuthorIds.add(authorId);\n      topicCounts[topicId] += 1;\n\n      rows.push({\n        json: {\n          'Professor ID': `PROF-${iw.year}${String(iw.week).padStart(2, '0')}-${String(rows.length + 1).padStart(4, '0')}`,\n          'Full Name': fullName,\n          'Institution': institution.display_name || '',\n          'Email': '',\n          'Profile URL': authorId,\n          'Topic ID': topicId,\n          'Topic Label': topicLabel,\n          'Relevance Score (1-10)': '',\n          'Research Summary (AI)': '',\n          'Top Paper Title': work.title || '',\n          'Top Paper URL': work.id || '',\n          'Top Paper Year': String(publicationYear || ''),\n          'Profile Valid (Yes/No)': 'Pending',\n          'Discovery Status': 'Discovered',\n          'Discovery Date': now.toISOString().split('T')[0],\n          'Discovery Week (YYYY-WW)': weekKey,\n          'Outreach Status': 'Not Sent',\n          'Last Draft Week (YYYY-WW)': '',\n          'Last Contacted Date': '',\n          'Rejection Reason': ''\n        }\n      });\n    }\n\n    if (rows.length >= MAX_NEW) break;\n    if (topicCounts[topicId] >= PER_TOPIC_CAP) break;\n  }\n\n  if (rows.length >= MAX_NEW) break;\n}\n\nreturn rows;"
+      },
+      "id": "__NODE_6__",
+      "name": "Build Professor Rows (Annual)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        1952
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "REDACTED",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REDACTED_OPAQUE_TOKEN",
+          "mode": "list",
+          "cachedResultName": "Research & Career Hub",
+          "cachedResultUrl": "[URL]"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "professors",
+          "cachedResultUrl": "[URL]"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Professor ID": "={{ $json[\"Professor ID\"] }}",
+            "Full Name": "={{ $json[\"Full Name\"] }}",
+            "Institution": "={{ $json.Institution }}",
+            "Profile URL": "={{ $json[\"Profile URL\"] }}",
+            "Topic ID": "={{ $json[\"Topic ID\"] }}",
+            "Topic Label": "={{ $json[\"Topic Label\"] }}",
+            "Relevance Score (1-10)": "={{ $json[\"Relevance Score (1-10)\"] }}",
+            "Research Summary (AI)": "={{ $json[\"Relevance Score (1-10)\"] }}",
+            "Top Paper Title": "={{ $json[\"Top Paper Title\"] }}",
+            "Top Paper URL": "={{ $json[\"Top Paper URL\"] }}",
+            "Profile Valid (Yes/No)": "={{ $json[\"Profile Valid (Yes/No)\"] }}",
+            "Top Paper Year": "={{ $json[\"Top Paper Year\"] }}",
+            "Discovery Status (Qualified/Rejected)": "={{ $json[\"Discovery Status\"] }}",
+            "Discovery Date": "={{ $json[\"Discovery Date\"] }}",
+            "Discovery Week (YYYY-WW)": "={{ $json[\"Discovery Week (YYYY-WW)\"] }}",
+            "Last Draft Week (YYYY-WW)": "={{ $json[\"Last Draft Week (YYYY-WW)\"] }}",
+            "Rejection Reason": "={{ $json[\"Rejection Reason\"] }}",
+            "Last Contacted Date": "={{ $json[\"Last Contacted Date\"] }}",
+            "Outreach Status (Not Sent/Drafted/Sent)": "={{ $json[\"Outreach Status\"] }}"
+          },
+          "matchingColumns": [
+            "Full Name"
+          ],
+          "schema": [
+            {
+              "id": "Professor ID",
+              "displayName": "Professor ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Full Name",
+              "displayName": "Full Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Institution",
+              "displayName": "Institution",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Profile URL",
+              "displayName": "Profile URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Topic ID",
+              "displayName": "Topic ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Topic Label",
+              "displayName": "Topic Label",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Relevance Score (1-10)",
+              "displayName": "Relevance Score (1-10)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Research Summary (AI)",
+              "displayName": "Research Summary (AI)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Top Paper Title",
+              "displayName": "Top Paper Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Top Paper URL",
+              "displayName": "Top Paper URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Top Paper Year",
+              "displayName": "Top Paper Year",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Profile Valid (Yes/No)",
+              "displayName": "Profile Valid (Yes/No)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Discovery Status (Qualified/Rejected)",
+              "displayName": "Discovery Status (Qualified/Rejected)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Discovery Date",
+              "displayName": "Discovery Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Discovery Week (YYYY-WW)",
+              "displayName": "Discovery Week (YYYY-WW)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Outreach Status (Not Sent/Drafted/Sent)",
+              "displayName": "Outreach Status (Not Sent/Drafted/Sent)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Draft Week (YYYY-WW)",
+              "displayName": "Last Draft Week (YYYY-WW)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Contacted Date",
+              "displayName": "Last Contacted Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Rejection Reason",
+              "displayName": "Rejection Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Discovery Status",
+              "displayName": "Discovery Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Outreach Status",
+              "displayName": "Outreach Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "__NODE_7__",
+      "name": "Append Professors (Annual)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2000,
+        1952
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "__GOOGLE_CRED_ID",
+          "name": "Google API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "REDACTED",
+        "documentId": {
+          "__rl": true,
+          "value": "REDACTED_OPAQUE_TOKEN",
+          "mode": "list",
+          "cachedResultName": "Research & Career Hub",
+          "cachedResultUrl": "[URL]"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "professors",
+          "cachedResultUrl": "[URL]"
+        },
+        "options": {}
+      },
+      "id": "__NODE_8__",
+      "name": "Read Professors (Weekly)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1040,
+        2400
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "__GOOGLE_CRED_ID",
+          "name": "Google API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function isoWeek(d = new Date()) {\n  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));\n  const dayNum = date.getUTCDay() || 7;\n  date.setUTCDate(date.getUTCDate() + 4 - dayNum);\n  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));\n  const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);\n  return { year: date.getUTCFullYear(), week: weekNo };\n}\nconst topics = [\n  { id: 'obj-detect', label: 'Object Detection', query: 'object detection YOLO Faster R-CNN RetinaNet one-stage two-stage detection real-time visual recognition' },\n  { id: 'image-recognition', label: 'Image Recognition', query: 'image recognition image classification visual recognition convolutional neural network CNN vision transformer ViT representation learning' },\n  { id: 'video-ai', label: 'Video AI', query: 'video understanding action recognition temporal modeling video classification tracking 3D CNN transformer diffusion' },\n  { id: 'edge-ai', label: 'Edge AI TinyML', query: 'edge machine learning TinyML embedded neural network model compression quantization pruning microcontroller on-device inference' },\n  { id: 'llm-agents', label: 'LLM Agents', query: 'large language model agent autonomous tool use planning reasoning ReAct multi-agent orchestration' },\n  { id: 'ai-ml-core', label: 'AI and Machine Learning', query: 'artificial intelligence machine learning deep learning reinforcement learning self-supervised learning foundation models' },\n  { id: 'bioremediation', label: 'Bioremediation', query: 'bioremediation microbial contamination environmental cleanup biodegradation pollutant removal' },\n  { id: 'bioenergy', label: 'Bioenergy', query: 'bioenergy biomass waste to energy biofuel anaerobic digestion renewable biological systems' },\n  { id: 'bioengineering', label: 'Bioengineering', query: 'bioengineering synthetic biology metabolic engineering genetic circuit design bioprocess engineering' },\n  { id: 'bioproduction', label: 'Bioproduction', query: 'bioproduction fermentation microbial biosynthesis industrial biotechnology upstream downstream processing' },\n  { id: 'ai-ml-biosystems', label: 'AI and ML in Biosystems', query: 'machine learning artificial intelligence biosystems systems biology bioinformatics computational biology bioprocess optimization' }\n];\nconst rows = $input.all().map(item => item.json || {});\nconst iw = isoWeek(new Date());\nconst weekKey = `${iw.year}-${String(iw.week).padStart(2, '0')}`;\nconst topic = topics[(iw.week - 1) % topics.length];\nconst existingIds = rows.map(row => String(row['Profile URL'] || '').trim()).filter(Boolean);\nconst existingNames = rows.map(row => String(row['Full Name'] || '').toLowerCase().trim()).filter(Boolean);\nconst selected = rows\n  .filter(row => String(row['Topic ID'] || '') === topic.id)\n  .filter(row => String(row['Outreach Status'] || '').toUpperCase() !== 'SENT')\n  .filter(row => String(row['Last Draft Week (YYYY-WW)'] || '') !== weekKey)\n  .sort((a, b) => Number(b['Relevance Score (1-10)'] || 0) - Number(a['Relevance Score (1-10)'] || 0))\n  .slice(0, 2)\n  .map(row => ({ ...row, _topicThisWeekId: topic.id, _topicThisWeekLabel: topic.label, _weekKey: weekKey, _selectionSource: 'sheet' }));\nreturn [{ json: {\n  _topicThisWeekId: topic.id,\n  _topicThisWeekLabel: topic.label,\n  _topicThisWeekQuery: topic.query,\n  _weekKey: weekKey,\n  _selected: selected,\n  _missingCount: Math.max(0, 2 - selected.length),\n  _needBackfill: selected.length < 2,\n  _existingIds: existingIds,\n  _existingNames: existingNames\n} }];"
+      },
+      "id": "__NODE_9__",
+      "name": "Plan Weekly Selection",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        2400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._needBackfill }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "__NODE_10__",
+      "name": "Need Backfill?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1520,
+        2400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const plan = $input.first().json;\nreturn (plan._selected || []).map(row => ({ json: row }));"
+      },
+      "id": "__NODE_11__",
+      "name": "Use Selected Weekly Candidates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1872,
+        2272
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=[URL] encodeURIComponent($json._topicThisWeekQuery) }},institutions.country_code:CA&per_page=8&sort=cited_by_count:desc&select=id,title,authorships&mailto=[EMAIL]",
+        "options": {}
+      },
+      "id": "__NODE_12__",
+      "name": "OpenAlex - Search Works (Weekly Backfill)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        2512
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const plan = $('Plan Weekly Selection').first().json;\nconst selected = Array.isArray(plan._selected) ? [...plan._selected] : [];\nconst chosenIds = new Set(selected.map(row => String(row['Profile URL'] || '')));\nconst existingIds = new Set((plan._existingIds || []).map(String));\nconst existingNames = new Set((plan._existingNames || []).map(String));\nconst results = $input.first().json.results || [];\nlet sequence = 1;\n\nfor (const work of results) {\n  for (const authorship of (work.authorships || [])) {\n    const author = authorship.author || {};\n    const authorId = String(author.id || '').trim();\n    const fullName = String(author.display_name || '').trim();\n    if (!authorId || !fullName) continue;\n    if (existingIds.has(authorId) || existingNames.has(fullName.toLowerCase()) || chosenIds.has(authorId)) continue;\n\n    const institution = (authorship.institutions || []).find(inst => inst.country_code === 'CA' && inst.type === 'education');\n    if (!institution) continue;\n\n    selected.push({\n      'Professor ID': `PROF-BF-${Date.now()}-${sequence++}` ,\n      'Full Name': fullName,\n      'Institution': institution.display_name || '',\n      'Email': '',\n      'Profile URL': authorId,\n      'Topic ID': plan._topicThisWeekId,\n      'Topic Label': plan._topicThisWeekLabel,\n      'Relevance Score (1-10)': '',\n      'Research Summary (AI)': '',\n      'Top Paper Title': work.title || '',\n      'Top Paper URL': work.id || '',\n      'Top Paper Year': '',\n      'Profile Valid (Yes/No)': 'Pending',\n      'Discovery Status': 'Discovered',\n      'Discovery Date': new Date().toISOString().split('T')[0],\n      'Discovery Week (YYYY-WW)': plan._weekKey,\n      'Outreach Status': 'Not Sent',\n      'Last Draft Week (YYYY-WW)': '',\n      'Last Contacted Date': '',\n      'Rejection Reason': '',\n      _topicThisWeekId: plan._topicThisWeekId,\n      _topicThisWeekLabel: plan._topicThisWeekLabel,\n      _weekKey: plan._weekKey,\n      _selectionSource: 'backfill'\n    });\n    chosenIds.add(authorId);\n\n    if (selected.length >= 2) break;\n  }\n  if (selected.length >= 2) break;\n}\n\nreturn selected.map(row => ({ json: row }));"
+      },
+      "id": "__NODE_13__",
+      "name": "Merge Weekly Selection With Backfill",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        2512
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ String($json._selectionSource || '') === 'backfill' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "__NODE_14__",
+      "name": "Is Backfill Professor?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2240,
+        2400
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "REDACTED",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REDACTED_OPAQUE_TOKEN",
+          "mode": "list",
+          "cachedResultName": "Research & Career Hub",
+          "cachedResultUrl": "[URL]"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "professors",
+          "cachedResultUrl": "[URL]"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "__NODE_15__",
+      "name": "Append Backfill Professors",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2480,
+        2272
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "__GOOGLE_CRED_ID",
+          "name": "Google API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "__NODE_16__",
+      "name": "Batch Weekly Candidates (1)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2736,
+        2416
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=[URL] encodeURIComponent($json['Profile URL']) }}&sort=publication_year:desc&per_page=5&select=id,title,publication_year,abstract_inverted_index,cited_by_count,primary_location&mailto=[EMAIL]",
+        "options": {}
+      },
+      "id": "__NODE_17__",
+      "name": "OpenAlex - Refresh Works (Weekly)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3008,
+        2528
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prof = $('Batch Weekly Candidates (1)').item.json;\nconst works = $input.item.json.results || [];\n\nfunction rebuildAbstract(inv) {\n  if (!inv) return '';\n  return Object.entries(inv)\n    .flatMap(([word, positions]) => positions.map(position => ({ word, position })))\n    .sort((a, b) => a.position - b.position)\n    .map(item => item.word)\n    .join(' ')\n    .substring(0, 900);\n}\n\nconst topicId = prof['Topic ID'] || prof._topicThisWeekId || '';\n\nconst motivations = {\n  'obj-detect': `I did not arrive at artificial intelligence through a computer science classroom, I arrived through a problem. In early 2025, management at my organisation was looking for volunteers to tackle a data science challenge, and I stepped forward. I had recently completed a Google Data Analytics certification, and I was curious about what applied data work could actually look like in practice. What followed was months of research, trial, iteration, and eventual deployment of a YOLO-based computer vision model capable of detecting our brand presence in point-of-sale marketing materials. The model did not merely solve the business problem, it completely replaced a manual image review process previously carried out by a team of 10 people, freeing them entirely to be redeployed into new roles within the organisation. That outcome confirmed something I had long suspected, that the highest-leverage skill in any modern industrial operation is the ability to design intelligent systems that learn and act on data. That conviction has only deepened since. In my current role as Junior Manager, AI and Automations, I have gone on to build different automated systems. Across these projects, I have encountered a consistent gap between what I have been able to deliver through self-teaching and what I understand to be theoretically possible. I have reached the boundary of practical experimentation, and I am ready to cross it.`,\n  'image-recognition': `I did not arrive at artificial intelligence through a computer science classroom, I arrived through a problem. In early 2025, management at my organisation was looking for volunteers to tackle a data science challenge, and I stepped forward. I had recently completed a Google Data Analytics certification, and I was curious about what applied data work could actually look like in practice. What followed was months of research, trial, iteration, and eventual deployment of a YOLO-based computer vision model capable of detecting our brand presence in point-of-sale marketing materials. The model did not merely solve the business problem, it completely replaced a manual image review process previously carried out by a team of 10 people, freeing them entirely to be redeployed into new roles within the organisation. That outcome confirmed something I had long suspected, that the highest-leverage skill in any modern industrial operation is the ability to design intelligent systems that learn and act on data. That conviction has only deepened since. In my current role as Junior Manager, AI and Automations, I have gone on to build different automated systems. Across these projects, I have encountered a consistent gap between what I have been able to deliver through self-teaching and what I understand to be theoretically possible. I have reached the boundary of practical experimentation, and I am ready to cross it.`,\n  'video-ai': `I did not arrive at artificial intelligence through a computer science classroom, I arrived through a problem. In early 2025, management at my organisation was looking for volunteers to tackle a data science challenge, and I stepped forward. I had recently completed a Google Data Analytics certification, and I was curious about what applied data work could actually look like in practice. What followed was months of research, trial, iteration, and eventual deployment of a YOLO-based computer vision model capable of detecting our brand presence in point-of-sale marketing materials. The model did not merely solve the business problem, it completely replaced a manual image review process previously carried out by a team of 10 people, freeing them entirely to be redeployed into new roles within the organisation. That outcome confirmed something I had long suspected, that the highest-leverage skill in any modern industrial operation is the ability to design intelligent systems that learn and act on data. That conviction has only deepened since. In my current role as Junior Manager, AI and Automations, I have gone on to build different automated systems. Across these projects, I have encountered a consistent gap between what I have been able to deliver through self-teaching and what I understand to be theoretically possible. I have reached the boundary of practical experimentation, and I am ready to cross it.`,\n  'edge-ai': `I did not arrive at artificial intelligence through a computer science classroom, I arrived through a problem. In early 2025, management at my organisation was looking for volunteers to tackle a data science challenge, and I stepped forward. I had recently completed a Google Data Analytics certification, and I was curious about what applied data work could actually look like in practice. What followed was months of research, trial, iteration, and eventual deployment of a YOLO-based computer vision model capable of detecting our brand presence in point-of-sale marketing materials. The model did not merely solve the business problem, it completely replaced a manual image review process previously carried out by a team of 10 people, freeing them entirely to be redeployed into new roles within the organisation. That outcome confirmed something I had long suspected, that the highest-leverage skill in any modern industrial operation is the ability to design intelligent systems that learn and act on data. That conviction has only deepened since. In my current role as Junior Manager, AI and Automations, I have gone on to build different automated systems. Across these projects, I have encountered a consistent gap between what I have been able to deliver through self-teaching and what I understand to be theoretically possible. I have reached the boundary of practical experimentation, and I am ready to cross it.`,\n  'llm-agents': `I did not arrive at artificial intelligence through a computer science classroom, I arrived through a problem. In early 2025, management at my organisation was looking for volunteers to tackle a data science challenge, and I stepped forward. I had recently completed a Google Data Analytics certification, and I was curious about what applied data work could actually look like in practice. What followed was months of research, trial, iteration, and eventual deployment of a YOLO-based computer vision model capable of detecting our brand presence in point-of-sale marketing materials. The model did not merely solve the business problem, it completely replaced a manual image review process previously carried out by a team of 10 people, freeing them entirely to be redeployed into new roles within the organisation. That outcome confirmed something I had long suspected, that the highest-leverage skill in any modern industrial operation is the ability to design intelligent systems that learn and act on data. That conviction has only deepened since. In my current role as Junior Manager, AI and Automations, I have gone on to build different automated systems. Across these projects, I have encountered a consistent gap between what I have been able to deliver through self-teaching and what I understand to be theoretically possible. I have reached the boundary of practical experimentation, and I am ready to cross it.`,\n  'ai-ml-core': `I did not arrive at artificial intelligence through a computer science classroom, I arrived through a problem. In early 2025, management at my organisation was looking for volunteers to tackle a data science challenge, and I stepped forward. I had recently completed a Google Data Analytics certification, and I was curious about what applied data work could actually look like in practice. What followed was months of research, trial, iteration, and eventual deployment of a YOLO-based computer vision model capable of detecting our brand presence in point-of-sale marketing materials. The model did not merely solve the business problem, it completely replaced a manual image review process previously carried out by a team of 10 people, freeing them entirely to be redeployed into new roles within the organisation. That outcome confirmed something I had long suspected, that the highest-leverage skill in any modern industrial operation is the ability to design intelligent systems that learn and act on data. That conviction has only deepened since. In my current role as Junior Manager, AI and Automations, I have gone on to build different automated systems. Across these projects, I have encountered a consistent gap between what I have been able to deliver through self-teaching and what I understand to be theoretically possible. I have reached the boundary of practical experimentation, and I am ready to cross it.`,\n  'bioremediation': `I have a background in biochemistry and production management. My work has centered on solving real-world bioprocess challenges through data-informed approaches. I am seeking an MSc to deepen my understanding of bioremediation and how advanced computational methods can enhance environmental remediation strategies.`,\n  'bioenergy': `I have a background in biochemistry and production management. My work has centered on solving real-world bioprocess challenges through data-informed approaches. I am seeking an MSc to deepen my understanding of bioenergy systems and how advanced computational methods can optimize renewable biological production.`,\n  'bioengineering': `I have a background in biochemistry and production management. My work has centered on solving real-world bioprocess challenges through data-informed approaches. I am seeking an MSc to deepen my understanding of bioengineering principles and their practical applications.`,\n  'bioproduction': `I have a background in biochemistry and production management. My work has centered on solving real-world bioprocess challenges through data-informed approaches. I am particularly interested in bioprocess engineering and industrial-scale biological production systems.`,\n  'ai-ml-biosystems': `I have a background in biochemistry and production management. My work has centered on solving real-world bioprocess challenges through data-informed approaches. I am particularly interested in how machine learning and AI can enhance biosystems understanding and bioprocess optimization.`\n};\n\nconst top = works[0] || {};\nconst paperTitle = top.title || prof['Top Paper Title'] || 'Untitled';\nconst paperYear = String(top.publication_year || prof['Top Paper Year'] || '');\nconst paperUrl = top.primary_location?.landing_page_url || top.id || prof['Top Paper URL'] || '';\nconst paperAbstract = rebuildAbstract(top.abstract_inverted_index);\nconst title = paperTitle.toLowerCase();\nlet heuristic = 6;\nif (title.includes('object') || title.includes('detection') || title.includes('vision') || title.includes('video')) heuristic = 8;\nif (title.includes('language') || title.includes('agent') || title.includes('llm')) heuristic = 8;\nif (title.includes('bio') || title.includes('microbial') || title.includes('fermentation')) heuristic = 7;\nif (title.includes('machine learning') || title.includes('artificial intelligence')) heuristic = Math.max(heuristic, 7);\n\nreturn [{ json: { \n  ...prof, \n  _topPaperTitle: paperTitle, \n  _topPaperYear: paperYear, \n  _topPaperUrl: paperUrl, \n  _topPaperAbstract: paperAbstract, \n  _weeklySummary: `${prof['Institution'] || ''} | ${prof['_topicThisWeekLabel'] || prof['Topic Label'] || ''} | ${paperTitle}`, \n  _weeklyRelevanceScore: heuristic,\n  _motivation: motivations[topicId] || motivations['ai-ml-core']\n} }];"
+      },
+      "id": "__NODE_18__",
+      "name": "Build Weekly Draft Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3216,
+        2528
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Draft a cold email to a professor enquiring about MSc supervision.\nReturn ONLY valid JSON: { \"subject\": \"...\", \"body\": \"...\"}\n\nCRITICAL INSTRUCTIONS:\n- Plain text only. NO bold, italics, asterisks, markdown, or HTML.\n- Weave the background naturally into the email body like a genuine cold outreach.\n- Do NOT state the background as a separate block\u2014integrate it as you introduce yourself.\n\nYOUR BACKGROUND (integrate this naturally):\n{{ $json._motivation }}\n\nPROFESSOR DETAILS:\nName: {{ $json['Full Name'] }}\nInstitution: {{ $json['Institution'] }}\nTheir Paper: {{ $json._topPaperTitle }}\nPaper Summary: {{ $json._topPaperAbstract }}\n\nEmail Structure:\n1. Greeting + introduce yourself with your background woven in naturally\n2. Reference their specific paper and what drew you to it\n3. Ask ONE thoughtful research question (shows you understand their work deeply)\n4. State your MSc goal aligned with their research\n5. Ask if they're accepting students and mention you'll share CV/transcript\n6. Professional closing\n\nMax 180 words. Plain text. Genuine, humble tone."
+      },
+      "id": "__NODE_19__",
+      "name": "AI - Draft Cold Email (Weekly)",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        3472,
+        2528
+      ]
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-120b",
+        "options": {}
+      },
+      "id": "__NODE_20__",
+      "name": "Groq Model - Weekly",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        3472,
+        2688
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "__GROQ_CRED_ID",
+          "name": "Groq API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.item.json.text || $input.item.json.content || '';\nconst prof = $('Build Weekly Draft Context').item.json;\nlet parsed = {};\ntry {\n  parsed = JSON.parse(raw.replace(/```json|```/g, '').trim());\n} catch (error) {\n  parsed = { subject: 'MSc Supervision Enquiry', body: raw.substring(0, 2500) };\n}\nreturn [{ json: { ...prof, _emailSubject: parsed.subject || 'MSc Supervision Enquiry', _emailBody: parsed.body || '' } }];"
+      },
+      "id": "__NODE_21__",
+      "name": "Parse Weekly Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3776,
+        2528
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $('Parse Weekly Draft').item.json;\nconst draftId = $input.item.json.id || '';\nreturn [{ json: {\n  'Email ID': 'EMAIL-' + String(Date.now()).slice(-6),\n  'Professor ID': row['Professor ID'] || '',\n  'Professor Name': row['Full Name'] || '',\n  'Institution': row['Institution'] || '',\n  'Topic ID': row._topicThisWeekId || row['Topic ID'] || '',\n  'Topic Label': row._topicThisWeekLabel || row['Topic Label'] || '',\n  'Paper Referenced': row._topPaperTitle || row['Top Paper Title'] || '',\n  'Paper URL': row._topPaperUrl || row['Top Paper URL'] || '',\n  'Paper Year': row._topPaperYear || row['Top Paper Year'] || '',\n  'Subject': row._emailSubject || '',\n  'Email Body': row._emailBody || '',\n  'Gmail Draft ID': draftId,\n  'Date Created': new Date().toISOString().split('T')[0],\n  'Created Week (YYYY-WW)': row._weekKey || '',\n  'Status': 'Drafted'\n} }];"
+      },
+      "id": "__NODE_22__",
+      "name": "Build Cold Email Row (Weekly)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4032,
+        2528
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "REDACTED",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REDACTED_OPAQUE_TOKEN",
+          "mode": "list",
+          "cachedResultName": "Research & Career Hub",
+          "cachedResultUrl": "[URL]"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "cold_emails",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "__NODE_23__",
+      "name": "Append Cold Emails (Weekly)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        4272,
+        2528
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "__GOOGLE_CRED_ID",
+          "name": "Google API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $('Build Weekly Draft Context').item.json;\nreturn [{ json: {\n  'Professor ID': row['Professor ID'] || '',\n  'Full Name': row['Full Name'] || '',\n  'Institution': row['Institution'] || '',\n  'Email': row['Email'] || '',\n  'Profile URL': row['Profile URL'] || '',\n  'Topic ID': row['Topic ID'] || row._topicThisWeekId || '',\n  'Topic Label': row['Topic Label'] || row._topicThisWeekLabel || '',\n  'Relevance Score (1-10)': row._weeklyRelevanceScore || row['Relevance Score (1-10)'] || '',\n  'Research Summary (AI)': row._weeklySummary || row['Research Summary (AI)'] || '',\n  'Top Paper Title': row._topPaperTitle || row['Top Paper Title'] || '',\n  'Top Paper URL': row._topPaperUrl || row['Top Paper URL'] || '',\n  'Top Paper Year': row._topPaperYear || row['Top Paper Year'] || '',\n  'Profile Valid (Yes/No)': 'Yes',\n  'Discovery Status': 'Qualified',\n  'Discovery Date': row['Discovery Date'] || new Date().toISOString().split('T')[0],\n  'Discovery Week (YYYY-WW)': row['Discovery Week (YYYY-WW)'] || row._weekKey || '',\n  'Outreach Status': 'Drafted',\n  'Last Draft Week (YYYY-WW)': row._weekKey || '',\n  'Last Contacted Date': '',\n  'Rejection Reason': ''\n} }];"
+      },
+      "id": "__NODE_24__",
+      "name": "Build Professor Outreach Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4512,
+        2528
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "REDACTED",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REDACTED_OPAQUE_TOKEN",
+          "mode": "list",
+          "cachedResultName": "Research & Career Hub",
+          "cachedResultUrl": "[URL]"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "professors",
+          "cachedResultUrl": "[URL]"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Professor ID": "={{ $json['Professor ID'] }}",
+            "Full Name": "={{ $json['Full Name'] }}",
+            "Institution": "={{ $json['Institution'] }}",
+            "Email": "REDACTED",
+            "Profile URL": "={{ $json['Profile URL'] }}",
+            "Topic ID": "={{ $json['Topic ID'] }}",
+            "Topic Label": "={{ $json['Topic Label'] }}",
+            "Relevance Score (1-10)": "={{ $json['Relevance Score (1-10)'] }}",
+            "Research Summary (AI)": "={{ $json['Research Summary (AI)'] }}",
+            "Top Paper Title": "={{ $json['Top Paper Title'] }}",
+            "Top Paper URL": "={{ $json['Top Paper URL'] }}",
+            "Top Paper Year": "={{ $json['Top Paper Year'] }}",
+            "Profile Valid (Yes/No)": "={{ $json['Profile Valid (Yes/No)'] }}",
+            "Discovery Status": "={{ $json['Discovery Status'] }}",
+            "Discovery Date": "={{ $json['Discovery Date'] }}",
+            "Discovery Week (YYYY-WW)": "={{ $json['Discovery Week (YYYY-WW)'] }}",
+            "Outreach Status": "={{ $json['Outreach Status'] }}",
+            "Last Draft Week (YYYY-WW)": "={{ $json['Last Draft Week (YYYY-WW)'] }}",
+            "Last Contacted Date": "={{ $json['Last Contacted Date'] }}",
+            "Rejection Reason": "={{ $json['Rejection Reason'] }}"
+          },
+          "matchingColumns": [
+            "Professor ID"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "__NODE_25__",
+      "name": "Update table_1 (Weekly)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        4752,
+        2528
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "__GOOGLE_CRED_ID",
+          "name": "Google API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "REDACTED",
+        "documentId": {
+          "__rl": true,
+          "value": "REDACTED_OPAQUE_TOKEN",
+          "mode": "list",
+          "cachedResultName": "Research & Career Hub",
+          "cachedResultUrl": "[URL]"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "cold_emails",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "__NODE_26__",
+      "name": "Read Cold Emails For Weekly Summary",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        3216,
+        2192
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "__GOOGLE_CRED_ID",
+          "name": "Google API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const wk = $('Batch Weekly Candidates (1)').first()?.json?._weekKey || $('Plan Weekly Selection').first()?.json?._weekKey || '';\nconst rows = $input.all().map(item => item.json || {});\nconst drafted = rows.filter(row => String(row['Created Week (YYYY-WW)'] || '') === wk);\nconst count = drafted.length;\nif (count === 0) {\n  return [{ json: { count: 0, html: `<html><body><p>No drafts created for week ${wk}. Sheet supply was low and backfill also returned no usable new professors.</p></body></html>` } }];\n}\nconst cards = drafted.map((row, index) => `\n  <div style=\"border:1px solid #e5e7eb;border-radius:10px;padding:14px;margin-bottom:12px;background:#fff;\">\n    <div style=\"font-size:12px;color:#6b7280;margin-bottom:4px;\">Draft ${index + 1}</div>\n    <div style=\"font-size:18px;font-weight:700;color:#111827;\">${row['Professor Name'] || ''}</div>\n    <div style=\"font-size:13px;color:#4b5563;margin-bottom:8px;\">${row['Institution'] || ''}</div>\n    <div><strong>Topic:</strong> ${row['Topic Label'] || ''}</div>\n    <div><strong>Paper:</strong> ${row['Paper Referenced'] || ''}</div>\n    ${row['Paper URL'] ? `<div><a href=\"${row['Paper URL']}\">Open paper</a></div>` : ''}\n    <div style=\"margin-top:8px;\"><strong>Subject:</strong> ${row['Subject'] || ''}</div>\n    <div style=\"margin-top:6px;color:#374151;\">${String(row['Email Body'] || '').replace(/\\n/g, '<br>')}</div>\n  </div>\n`).join('');\nconst html = `<!DOCTYPE html><html><body style=\"margin:0;padding:22px;background:#f3f4f6;font-family:Arial,sans-serif;color:#111827;\">\n<div style=\"max-width:860px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.08);\">\n<div style=\"background:#1a3a2a;color:#fff;padding:24px 28px;\">\n<div style=\"font-size:12px;letter-spacing:1px;text-transform:uppercase;opacity:.85;\">Weekly Outreach</div>\n<div style=\"font-size:28px;font-weight:800;\">${count} draft${count !== 1 ? 's' : ''} created</div>\n<div style=\"font-size:13px;opacity:.88;margin-top:8px;\">Week ${wk}</div>\n</div>\n<div style=\"padding:20px 24px;background:#f9fafb;\">${cards}</div>\n</div></body></html>`;\nreturn [{ json: { count, html } }];"
+      },
+      "id": "__NODE_27__",
+      "name": "Build Weekly Summary Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3488,
+        2192
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "[EMAIL]",
+        "subject": "={{ 'Weekly Outreach Drafts: ' + $json.count }}",
+        "message": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "__NODE_28__",
+      "name": "Send Weekly Draft Summary",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        3728,
+        2192
+      ],
+      "webhookId": "__WEBHOOK_1__",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "__OAUTH2_CRED_ID",
+          "name": "OAuth2 Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { trigger: true } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3024,
+        2192
+      ],
+      "id": "__NODE_29__",
+      "name": "Make a single input"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Annual - Professor Discovery": {
+      "main": [
+        [
+          {
+            "node": "Read Existing Professors (Annual)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Existing Professors (Annual)": {
+      "main": [
+        [
+          {
+            "node": "Prepare Topics (Annual)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Topics (Annual)": {
+      "main": [
+        [
+          {
+            "node": "OpenAlex - Search Works (Annual)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAlex - Search Works (Annual)": {
+      "main": [
+        [
+          {
+            "node": "Build Professor Rows (Annual)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Professor Rows (Annual)": {
+      "main": [
+        [
+          {
+            "node": "Append Professors (Annual)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly - Draft Outreach": {
+      "main": [
+        [
+          {
+            "node": "Read Professors (Weekly)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Professors (Weekly)": {
+      "main": [
+        [
+          {
+            "node": "Plan Weekly Selection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan Weekly Selection": {
+      "main": [
+        [
+          {
+            "node": "Need Backfill?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Need Backfill?": {
+      "main": [
+        [
+          {
+            "node": "OpenAlex - Search Works (Weekly Backfill)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Use Selected Weekly Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAlex - Search Works (Weekly Backfill)": {
+      "main": [
+        [
+          {
+            "node": "Merge Weekly Selection With Backfill",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use Selected Weekly Candidates": {
+      "main": [
+        [
+          {
+            "node": "Is Backfill Professor?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Weekly Selection With Backfill": {
+      "main": [
+        [
+          {
+            "node": "Is Backfill Professor?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Backfill Professor?": {
+      "main": [
+        [
+          {
+            "node": "Append Backfill Professors",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Batch Weekly Candidates (1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Backfill Professors": {
+      "main": [
+        [
+          {
+            "node": "Batch Weekly Candidates (1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Batch Weekly Candidates (1)": {
+      "main": [
+        [
+          {
+            "node": "Make a single input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "OpenAlex - Refresh Works (Weekly)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAlex - Refresh Works (Weekly)": {
+      "main": [
+        [
+          {
+            "node": "Build Weekly Draft Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Weekly Draft Context": {
+      "main": [
+        [
+          {
+            "node": "AI - Draft Cold Email (Weekly)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Model - Weekly": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI - Draft Cold Email (Weekly)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Draft Cold Email (Weekly)": {
+      "main": [
+        [
+          {
+            "node": "Parse Weekly Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Weekly Draft": {
+      "main": [
+        [
+          {
+            "node": "Build Cold Email Row (Weekly)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Cold Email Row (Weekly)": {
+      "main": [
+        [
+          {
+            "node": "Append Cold Emails (Weekly)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Cold Emails (Weekly)": {
+      "main": [
+        [
+          {
+            "node": "Build Professor Outreach Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Professor Outreach Update": {
+      "main": [
+        [
+          {
+            "node": "Update Professors (Weekly)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Professors (Weekly)": {
+      "main": [
+        [
+          {
+            "node": "Batch Weekly Candidates (1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Cold Emails For Weekly Summary": {
+      "main": [
+        [
+          {
+            "node": "Build Weekly Summary Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Weekly Summary Email": {
+      "main": [
+        [
+          {
+            "node": "Send Weekly Draft Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Make a single input": {
+      "main": [
+        [
+          {
+            "node": "Read Cold Emails For Weekly Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "timezone": "Africa/Lagos",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "__VERSION_ID__",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "__INSTANCE_ID__"
+  },
+  "nodeGroups": [],
+  "id": "__WORKFLOW_ID__",
+  "_sanitization_metadata": {
+    "sanitized_at": "2026-06-25T16:45:16.883660+00:00",
+    "original_name": "Research Career Hub",
+    "note": "Sensitive data replaced with placeholders.",
+    "tables_renamed": {
+      "Professors": "table_1"
+    },
+    "columns_renamed": {}
+  }
+}

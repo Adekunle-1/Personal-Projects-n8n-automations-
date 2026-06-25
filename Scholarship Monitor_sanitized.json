@@ -1,0 +1,708 @@
+{
+  "name": "Scholarship Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "authentication": "REDACTED",
+        "documentId": {
+          "__rl": true,
+          "value": "REDACTED_OPAQUE_TOKEN",
+          "mode": "list",
+          "cachedResultName": "Scholarship Automation",
+          "cachedResultUrl": "[URL]"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 389282854,
+          "mode": "list",
+          "cachedResultName": "scholarship_repository",
+          "cachedResultUrl": "[URL]"
+        },
+        "options": {}
+      },
+      "id": "__NODE_1__",
+      "name": "Read Scholarship Repository",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -2864,
+        1456
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "__GOOGLE_CRED_ID",
+          "name": "Google API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "[URL]",
+        "authentication": "REDACTED",
+        "genericAuthType": "REDACTED",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{$json['Brave Search Query']}}"
+            },
+            {
+              "name": "count",
+              "value": "5"
+            },
+            {
+              "name": "freshness",
+              "value": "pw"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "__NODE_2__",
+      "name": "Brave Search \u2013 Status Check per Scholarship",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2240,
+        1328
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "__HTTP_HEADER_CRED_ID",
+          "name": "HTTP Header Auth Credentials"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const scholarship = $('Split in Batches (1 per batch)').first().json || {};\nconst merged = $json || {};\n\nconst firecrawlContent =\n  merged?.data?.markdown ||\n  merged?.markdown ||\n  merged?.error?.message ||\n  merged?.errorDescription ||\n  merged?.errorMessage ||\n  'Firecrawl failed or returned no content';\n\nconst braveSnippets =\n  (merged?.web?.results || [])\n    .slice(0, 3)\n    .map(result => `${result.title}: ${result.description}`)\n    .join('\\n') ||\n  'No Brave results';\n\nreturn [\n  {\n    json: {\n      ...scholarship,\n      firecrawl_content: String(firecrawlContent).substring(0, 3000),\n      brave_snippets: String(braveSnippets).substring(0, 1500)\n    }\n  }\n];"
+      },
+      "id": "__NODE_3__",
+      "name": "Merge Firecrawl + Brave Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1664,
+        1456
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const sch = $('Merge Firecrawl + Brave Data').first().json || {};\nconst raw = $json.content || $json.message?.content || $json.text || '{}';\n\nlet analysis = {};\ntry {\n  const cleaned = raw.replace(/```json|```/g, '').trim();\n  analysis = JSON.parse(cleaned);\n} catch (e) {\n  analysis = {\n    status: 'UNKNOWN',\n    deadline: '',\n    eligibility_summary: '',\n    required_documents: '',\n    action_checklist: [],\n    confidence: 'LOW',\n    raw_snippet: String(raw).substring(0, 200)\n  };\n}\n\nconst runDate = new Date().toISOString().split('T')[0];\n\nlet daysUntil = '';\nif (analysis.deadline) {\n  const deadlineDate = new Date(analysis.deadline);\n  const today = new Date();\n  const diff = Math.round((deadlineDate - today) / (1000 * 60 * 60 * 24));\n  daysUntil = isNaN(diff) ? '' : String(diff);\n}\n\nconst checklist = Array.isArray(analysis.action_checklist)\n  ? analysis.action_checklist.join(' | ')\n  : (analysis.action_checklist || '');\n\nreturn [\n  {\n    json: {\n      'Run Date': runDate,\n      'Scholarship ID': sch['ID'] || '',\n      'Scholarship Name': sch['Scholarship Name'] || '',\n      'Official URL': sch['Official URL'] || '',\n      'Status (OPEN / CLOSED / UNKNOWN)': analysis.status || 'UNKNOWN',\n      'Deadline Detected': analysis.deadline || '',\n      'Days Until Deadline': daysUntil,\n      'Eligibility Summary (AI)': analysis.eligibility_summary || '',\n      'Required Documents (AI)': analysis.required_documents || ''\n    }\n  }\n];"
+      },
+      "id": "__NODE_4__",
+      "name": "Build Tracker Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        1456
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "REDACTED",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REDACTED_OPAQUE_TOKEN",
+          "mode": "list",
+          "cachedResultName": "Scholarship Automation",
+          "cachedResultUrl": "[URL]"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 776804625,
+          "mode": "list",
+          "cachedResultName": "scholarship_tracker",
+          "cachedResultUrl": "[URL]"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Run Date": "={{ $json[\"Run Date\"] }}",
+            "Scholarship ID": "={{ $json[\"Scholarship ID\"] }}",
+            "Scholarship Name": "={{ $json[\"Scholarship Name\"] }}",
+            "Official URL": "={{ $json[\"Official URL\"] }}",
+            "Status (OPEN / CLOSED / UNKNOWN)": "={{ $json[\"Status (OPEN / CLOSED / UNKNOWN)\"] }}",
+            "Deadline Detected": "={{ $json[\"Deadline Detected\"] }}",
+            "Days Until Deadline": "={{ $json[\"Days Until Deadline\"] }}",
+            "Eligibility Summary (AI)": "={{ $json[\"Eligibility Summary (AI)\"] }}",
+            "Required Documents (AI)": "={{ $json[\"Required Documents (AI)\"] }}"
+          },
+          "matchingColumns": [
+            "Scholarship ID"
+          ],
+          "schema": [
+            {
+              "id": "Run Date",
+              "displayName": "Run Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Scholarship ID",
+              "displayName": "Scholarship ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Scholarship Name",
+              "displayName": "Scholarship Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Official URL",
+              "displayName": "Official URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Status (OPEN / CLOSED / UNKNOWN)",
+              "displayName": "Status (OPEN / CLOSED / UNKNOWN)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Deadline Detected",
+              "displayName": "Deadline Detected",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Days Until Deadline",
+              "displayName": "Days Until Deadline",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Eligibility Summary (AI)",
+              "displayName": "Eligibility Summary (AI)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Required Documents (AI)",
+              "displayName": "Required Documents (AI)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "__NODE_5__",
+      "name": "Log to Tracker Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -912,
+        1456
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "__GOOGLE_CRED_ID",
+          "name": "Google API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "__NODE_6__",
+      "name": "Has Open Scholarships Today?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1552,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "REDACTED",
+        "documentId": {
+          "__rl": true,
+          "value": "REDACTED_OPAQUE_TOKEN",
+          "mode": "list",
+          "cachedResultName": "Scholarship Automation",
+          "cachedResultUrl": "[URL]"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 776804625,
+          "mode": "list",
+          "cachedResultName": "scholarship_tracker",
+          "cachedResultUrl": "[URL]"
+        },
+        "options": {}
+      },
+      "id": "__NODE_7__",
+      "name": "Read Tracker Sheet For Digest",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -2032,
+        1120
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "__GOOGLE_CRED_ID",
+          "name": "Google API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=SCHOLARSHIP: {{ $json['Scholarship Name'] }}\nURL: {{ $json['Official URL'] }}\nTODAY'S DATE: {{ new Date().toISOString().split('T')[0] }}\nTYPICAL OPEN MONTH: {{ $json['Typical Open Month'] || 'Unknown' }}\nTYPICAL CLOSE MONTH: {{ $json['Typical Close Month'] || 'Unknown' }}\n\nFIRECRAWL PAGE CONTENT:\n{{ $json.firecrawl_content }}\n\nBRAVE SEARCH SNIPPETS:\n{{ $json.brave_snippets }}\n\nUse the typical open/close months as seasonal context when page content is ambiguous about current application status. If today's date is within or near the typical open-close window, lean toward OPEN if page content supports it.\n\nAnalyse the above and return ONLY a valid JSON object - no markdown, no backticks, no explanation.\nReturn this exact structure:\n{ \"status\": \"OPEN|CLOSED|UNKNOWN\", \"deadline\": \"YYYY-MM-DD or empty string\", \"eligibility_summary\": \"string\", \"required_documents\": \"string\" }"
+      },
+      "id": "__NODE_8__",
+      "name": "LLM Chain \u2013 Analyse Scholarship Status",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        -1440,
+        1456
+      ]
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-120b",
+        "options": {}
+      },
+      "id": "__NODE_9__",
+      "name": "Groq Model \u2013 Analysis",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        -1440,
+        1616
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "__GROQ_CRED_ID",
+          "name": "Groq API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "[URL]",
+        "authentication": "REDACTED",
+        "genericAuthType": "REDACTED",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"url\": \"{{ $json['Check URL (Firecrawl)'] }}\",\n  \"formats\": [\"markdown\"],\n  \"onlyMainContent\": true,\n  \"waitFor\": 2000\n}",
+        "options": {}
+      },
+      "id": "__NODE_10__",
+      "name": "Firecrawl \u2013 Scrape Scholarship Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2240,
+        1552
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "__HTTP_HEADER_CRED_ID",
+          "name": "HTTP Header Auth Credentials"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "__NODE_11__",
+      "name": "Weekly Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -3104,
+        1456
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "[EMAIL]",
+        "subject": "={{ 'Scholarship Monitor: ' + $json.count + ' open scholarship' + ($json.count !== 1 ? 's' : '') + ' today' }}",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -1296,
+        1104
+      ],
+      "id": "__NODE_12__",
+      "name": "Send Digest Email",
+      "webhookId": "__WEBHOOK_1__",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "__OAUTH2_CRED_ID",
+          "name": "OAuth2 Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "__NODE_13__",
+      "name": "Split in Batches (1 per batch)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -2544,
+        1456
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const today = new Date().toISOString().split('T')[0];\nconst openRows = $input.all()\n  .map(item => item.json)\n  .filter(row => row['Run Date'] === today)\n  .filter(row => String(row['Status (OPEN / CLOSED / UNKNOWN)'] || '').toUpperCase() === 'OPEN')\n  .filter(row => String(row['Email Sent (Yes/No)'] || '').toUpperCase() !== 'YES');\n\nconst count = openRows.length;\nif (count === 0) {\n  return [{ json: { count: 0, html: '', rowsToMark: [] } }];\n}\n\nconst itemsHtml = openRows.map(row => {\n  const deadline = row['Deadline Detected'] || 'Confirm on official site';\n  const days = row['Days Until Deadline'] ? row['Days Until Deadline'] + ' days left' : 'Deadline unknown';\n  const eligibility = row['Eligibility Summary (AI)'] || 'See official site for details';\n  const url = row['Official URL'] || '#';\n  return `\n    <div style=\"border:1px solid #e5e7eb;border-radius:10px;padding:18px 20px;margin-bottom:16px;background:#ffffff;\">\n      <div style=\"font-size:18px;font-weight:700;color:#16213e;margin-bottom:6px;\">${row['Scholarship Name'] || 'Scholarship'}</div>\n      <div style=\"font-size:13px;color:#b45309;font-weight:700;margin-bottom:8px;\">${days} \u00b7 ${deadline}</div>\n      <div style=\"font-size:14px;line-height:1.6;color:#334155;margin-bottom:14px;\">${eligibility}</div>\n      <a href=\"${url}\" style=\"display:inline-block;background:#1a3a2a;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:700;\">Open Scholarship Page</a>\n    </div>`;\n}).join('');\n\nconst html = `<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Scholarship Monitor Digest</title></head><body style=\"margin:0;padding:24px;background:#f3f4f6;font-family:Arial,sans-serif;color:#111827;\"><div style=\"max-width:760px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.08);\"><div style=\"background:#1a3a2a;color:#ffffff;padding:28px 32px;\"><div style=\"font-size:12px;letter-spacing:1.2px;text-transform:uppercase;opacity:.8;margin-bottom:8px;\">Weekly Scholarship Monitor</div><div style=\"font-size:28px;font-weight:800;line-height:1.2;\">${count} open scholarship${count !== 1 ? 's' : ''} found</div><div style=\"font-size:14px;opacity:.85;margin-top:8px;\">Run date: ${today}</div></div><div style=\"padding:28px 32px;background:#f9fafb;\">${itemsHtml}</div></div></body></html>`;\n\nconst rowsToMark = openRows.map(row => ({\n  'Run Date': row['Run Date'] || '',\n  'Scholarship ID': row['Scholarship ID'] || '',\n  'Email Sent (Yes/No)': 'Yes'\n}));\n\nreturn [{ json: { count, html, rowsToMark } }];"
+      },
+      "id": "__NODE_14__",
+      "name": "Build Open Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1792,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -1936,
+        1456
+      ],
+      "id": "__NODE_15__",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { trigger: true } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2240,
+        1120
+      ],
+      "id": "__NODE_16__",
+      "name": "Make a single input"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Weekly Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Scholarship Repository",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Scholarship Repository": {
+      "main": [
+        [
+          {
+            "node": "Split in Batches (1 per batch)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split in Batches (1 per batch)": {
+      "main": [
+        [
+          {
+            "node": "Make a single input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Firecrawl \u2013 Scrape Scholarship Page",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Brave Search \u2013 Status Check per Scholarship",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Firecrawl + Brave Data": {
+      "main": [
+        [
+          {
+            "node": "LLM Chain \u2013 Analyse Scholarship Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Model \u2013 Analysis": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "LLM Chain \u2013 Analyse Scholarship Status",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Chain \u2013 Analyse Scholarship Status": {
+      "main": [
+        [
+          {
+            "node": "Build Tracker Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Tracker Row": {
+      "main": [
+        [
+          {
+            "node": "Log to Tracker Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Tracker Sheet": {
+      "main": [
+        [
+          {
+            "node": "Split in Batches (1 per batch)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Tracker Sheet For Digest": {
+      "main": [
+        [
+          {
+            "node": "Build Open Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Open Digest": {
+      "main": [
+        [
+          {
+            "node": "Has Open Scholarships Today?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Open Scholarships Today?": {
+      "main": [
+        [
+          {
+            "node": "Send Digest Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Digest Email": {
+      "main": [
+        []
+      ]
+    },
+    "Brave Search \u2013 Status Check per Scholarship": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firecrawl \u2013 Scrape Scholarship Page": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Merge Firecrawl + Brave Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Make a single input": {
+      "main": [
+        [
+          {
+            "node": "Read Tracker Sheet For Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v0",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "timezone": "Africa/Lagos",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "Y31eYhxE2G9PYw4R"
+  },
+  "versionId": "__VERSION_ID__",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "__INSTANCE_ID__"
+  },
+  "nodeGroups": [],
+  "id": "__WORKFLOW_ID__",
+  "_sanitization_metadata": {
+    "sanitized_at": "2026-06-25T16:45:16.889831+00:00",
+    "original_name": "Scholarship Monitor",
+    "note": "Sensitive data replaced with placeholders.",
+    "tables_renamed": {},
+    "columns_renamed": {}
+  }
+}

@@ -1,0 +1,481 @@
+{
+  "name": "Job Opening Scanner",
+  "nodes": [
+    {
+      "parameters": {
+        "authentication": "REDACTED",
+        "documentId": {
+          "__rl": true,
+          "value": "REDACTED_OPAQUE_TOKEN",
+          "mode": "list",
+          "cachedResultName": "Companies List",
+          "cachedResultUrl": "[URL]"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "[URL]"
+        },
+        "options": {}
+      },
+      "id": "__NODE_1__",
+      "name": "Read Company List",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        -1200,
+        192
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "__GOOGLE_CRED_ID",
+          "name": "Google API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const state = $getWorkflowStaticData('global');\n// Reset all state at the start of each run\nstate.jobs           = [];\nstate.currentCompany = '';\nstate.currentSector  = '';\nstate.currentUrl     = '';\n\nconst activeItems = $input.all().filter(item => {\n  const val = String(item.json.Active || '').trim().toUpperCase();\n  return val === 'TRUE' || val === '1' || val === 'YES';\n});\n\nif (activeItems.length === 0) {\n  throw new Error('No active companies found. Check the Active column in your Google Sheet.');\n}\n\nreturn activeItems;"
+      },
+      "id": "__NODE_2__",
+      "name": "Init Jobs Store",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -992,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "__NODE_3__",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -752,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item  = $input.first().json;\nconst state = $getWorkflowStaticData('global');\nstate.currentCompany = item.Company       || '';\nstate.currentSector  = item.Sector        || '';\nstate.currentUrl     = item['Career URL'] || '';\nreturn $input.all();"
+      },
+      "id": "__NODE_4__",
+      "name": "Store Company Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -432,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "[URL]",
+        "authentication": "REDACTED",
+        "genericAuthType": "REDACTED",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { url: $json['Career URL'], formats: ['markdown'], onlyMainContent: true, timeout: 30000 } }}",
+        "options": {
+          "timeout": 35000
+        }
+      },
+      "id": "__NODE_5__",
+      "name": "Firecrawl Scrape",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -208,
+        304
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "__HTTP_HEADER_CRED_ID",
+          "name": "HTTP Header Auth Credentials"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const state   = $getWorkflowStaticData('global');\nconst company = state.currentCompany || '';\nconst sector  = state.currentSector  || '';\nconst url     = state.currentUrl     || '';\n\nconst item = $input.first();\nlet markdown = '';\n\ntry {\n  if (item.json?.data?.markdown) {\n    markdown = item.json.data.markdown.substring(0, 12000);\n  }\n} catch (e) { markdown = ''; }\n\nif (!markdown) {\n  markdown = `Career page for ${company}. No readable content retrieved from: ${url}`;\n}\n\nreturn [{ json: { company, sector, url, markdown } }];"
+      },
+      "id": "__NODE_6__",
+      "name": "Handle Firecrawl Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        16,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "[URL]",
+        "authentication": "REDACTED",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: 'llama-3.3-70b-versatile', messages: [ { role: 'system', content: 'You are a job listing extractor. Analyze the career page content and extract all available job listings. Return ONLY valid JSON in this exact format with no extra text before or after: {\"jobs\":[{\"title\":\"Job Title\",\"location\":\"City, Country\",\"department\":\"Department or empty string\",\"url\":\"[URL] or empty string\"}]}. If no job listings are found, return {\"jobs\":[]}.' }, { role: 'user', content: 'Company: ' + $json.company + '\\nSource URL: ' + $json.url + '\\nCareer page content:\\n' + $json.markdown } ], temperature: 0.1, response_format: { type: 'json_object' }, max_tokens: 1500 } }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "__NODE_7__",
+      "name": "Groq Extract Jobs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        304
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "__HTTP_HEADER_CRED_ID",
+          "name": "HTTP Header Auth Credentials"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const state   = $getWorkflowStaticData('global');\nconst company = state.currentCompany || '';\nconst sector  = state.currentSector  || '';\nconst url     = state.currentUrl     || '';\nconst existingJobs = Array.isArray(state.jobs) ? state.jobs : [];\n\nconst nigeriaKeywords   = ['nigeria', 'lagos', 'abuja', 'port harcourt', 'kano', 'ibadan', 'ogun', 'benin city'];\nconst nigeriaUrlPatterns = ['.ng/', '/nigeria', '/ng/', 'country=ng', 'country=NG', '/NGA', 'locationsearch=nigeria', 'location=nigeria', 'l=nigeria'];\nconst isNigeriaSourceUrl = nigeriaUrlPatterns.some(p => url.toLowerCase().includes(p.toLowerCase()));\n\nlet newJobs = [];\n\ntry {\n  const response = $input.first().json;\n\n  if (!response?.choices?.[0]?.message?.content) {\n    throw new Error('No valid Groq response for: ' + company);\n  }\n\n  const parsed = JSON.parse(response.choices[0].message.content);\n  const jobs   = Array.isArray(parsed.jobs) ? parsed.jobs : [];\n\n  for (const job of jobs) {\n    const location = (job.location || '').toLowerCase();\n    const isNigeriaJob =\n      isNigeriaSourceUrl ||\n      nigeriaKeywords.some(kw => location.includes(kw)) ||\n      location === '' ||\n      location === 'n/a';\n\n    if (isNigeriaJob) {\n      newJobs.push({\n        company,\n        sector,\n        title:      job.title      || 'Unknown Role',\n        location:   job.location   || 'Nigeria',\n        jobUrl:     job.url        || url,\n        department: job.department || ''\n      });\n    }\n  }\n} catch (e) {\n  newJobs = [];\n}\n\n// Direct mutation \u2014 no set() call, no internal logger, no sandbox crash\nstate.jobs = [...existingJobs, ...newJobs];\n\nreturn [{ json: { processed: true, company, jobsFound: newJobs.length } }];"
+      },
+      "id": "__NODE_8__",
+      "name": "Parse Filter Append",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const state   = $getWorkflowStaticData('global');\nconst allJobs = Array.isArray(state.jobs) ? state.jobs : [];\nreturn [{ json: { allJobs, totalCount: allJobs.length } }];"
+      },
+      "id": "__NODE_9__",
+      "name": "Read All Jobs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -432,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-has-jobs",
+              "leftValue": "={{ $json.totalCount }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "__NODE_10__",
+      "name": "IF Jobs Found",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const { allJobs } = $input.first().json;\nconst date = new Date().toLocaleDateString('en-GB', {\n  day: 'numeric', month: 'long', year: 'numeric'\n});\n\n// Group by sector \u2192 company\nconst bySector = {};\nfor (const job of allJobs) {\n  const s = job.sector || 'Other';\n  const c = job.company;\n  if (!bySector[s]) bySector[s] = {};\n  if (!bySector[s][c]) bySector[s][c] = [];\n  bySector[s][c].push(job);\n}\n\nconst sectorCount  = Object.keys(bySector).length;\nconst companyCount = Object.values(bySector).reduce((a, s) => a + Object.keys(s).length, 0);\n\nconst sectorColors = {\n  'Consumer Goods': '#27ae60',\n  'Consulting':     '#8e44ad',\n  'Oil & Gas':      '#e67e22',\n  'Banking':        '#2980b9',\n  'Telecom':        '#16a085',\n  'Fintech':        '#c0392b',\n  'Tech':           '#2c3e50'\n};\n\nlet html = `\n<div style=\"font-family:Arial,sans-serif;max-width:800px;margin:0 auto;color:#2c3e50;\">\n  <h2 style=\"background:#2c3e50;color:white;padding:16px;margin:0;border-radius:6px 6px 0 0;\">\n    &#127475;&#127468; Nigerian Job Openings &mdash; ${date}\n  </h2>\n  <div style=\"background:#ecf0f1;padding:12px 16px;border-radius:0 0 6px 6px;margin-bottom:20px;\">\n    <strong>${allJobs.length} opening${allJobs.length !== 1 ? 's' : ''}</strong>\n    across ${companyCount} compan${companyCount !== 1 ? 'ies' : 'y'}\n    in ${sectorCount} sector${sectorCount !== 1 ? 's' : ''}\n  </div>`;\n\nfor (const [sector, companies] of Object.entries(bySector)) {\n  const color = sectorColors[sector] || '#7f8c8d';\n  html += `<h3 style=\"color:${color};border-left:4px solid ${color};padding-left:10px;margin-top:24px;\">${sector}</h3>`;\n  for (const [company, jobs] of Object.entries(companies)) {\n    html += `<div style=\"margin-left:14px;margin-bottom:12px;\">\n      <strong style=\"font-size:15px;\">${company}</strong>\n      <ul style=\"margin:4px 0;\">`;\n    for (const job of jobs) {\n      const link = job.jobUrl\n        ? `<a href=\"${job.jobUrl}\" style=\"color:#2980b9;text-decoration:none;\">${job.title}</a>`\n        : job.title;\n      const dept = job.department\n        ? ` &bull; <em style=\"color:#7f8c8d;\">${job.department}</em>`\n        : '';\n      html += `<li style=\"margin:4px 0;\">${link} &mdash; <span style=\"color:#7f8c8d;\">${job.location}</span>${dept}</li>`;\n    }\n    html += `</ul></div>`;\n  }\n}\n\nhtml += `\n  <hr style=\"border:none;border-top:1px solid #eee;margin-top:30px;\">\n  <p style=\"color:#bdc3c7;font-size:12px;text-align:center;\">\n    Generated by your n8n Job Scanner &bull; Powered by Firecrawl + Groq &bull; Good luck!\n  </p>\n</div>`;\n\nconst subject = `[Job Scanner] ${allJobs.length} Nigerian Opening${allJobs.length !== 1 ? 's' : ''} \u2014 ${date}`;\n\nreturn [{ json: { subject, htmlBody: html } }];"
+      },
+      "id": "__NODE_11__",
+      "name": "Format Email HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "__NODE_12__",
+      "name": "No Jobs Found",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        0,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 10
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        640,
+        304
+      ],
+      "id": "__NODE_13__",
+      "name": "Wait",
+      "webhookId": "__WEBHOOK_1__"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 8,
+              "triggerAtMinute": 5
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1392,
+        192
+      ],
+      "id": "__NODE_14__",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "sendTo": "[EMAIL]",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.htmlBody }}",
+        "options": {
+          "appendAttribution": false,
+          "ccList": "[EMAIL]"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "__NODE_15__",
+      "name": "Send a message",
+      "webhookId": "__WEBHOOK_2__",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "__OAUTH2_CRED_ID",
+          "name": "OAuth2 Credentials"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Read Company List": {
+      "main": [
+        [
+          {
+            "node": "Init Jobs Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init Jobs Store": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Read All Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Store Company Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Company Context": {
+      "main": [
+        [
+          {
+            "node": "Firecrawl Scrape",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firecrawl Scrape": {
+      "main": [
+        [
+          {
+            "node": "Handle Firecrawl Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Firecrawl Response": {
+      "main": [
+        [
+          {
+            "node": "Groq Extract Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Extract Jobs": {
+      "main": [
+        [
+          {
+            "node": "Parse Filter Append",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Filter Append": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read All Jobs": {
+      "main": [
+        [
+          {
+            "node": "IF Jobs Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Jobs Found": {
+      "main": [
+        [
+          {
+            "node": "Format Email HTML",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Jobs Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Email HTML": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Company List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "timezone": "Africa/Lagos",
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "Y31eYhxE2G9PYw4R"
+  },
+  "versionId": "__VERSION_ID__",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "__INSTANCE_ID__"
+  },
+  "nodeGroups": [],
+  "id": "__WORKFLOW_ID__",
+  "_sanitization_metadata": {
+    "sanitized_at": "2026-06-25T16:45:16.790777+00:00",
+    "original_name": "Job Opening Scanner",
+    "note": "Sensitive data replaced with placeholders.",
+    "tables_renamed": {},
+    "columns_renamed": {}
+  }
+}
